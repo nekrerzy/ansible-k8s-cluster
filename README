@@ -1,0 +1,90 @@
+Setup k8s nodes for cluster installation
+El primer playbook se llama "Setup k8s nodes for cluster installation".
+
+El playbook se ejecutará en hosts etiquetados como k8scluster.
+gather_facts se establece en no para evitar que Ansible recopile información sobre los hosts.
+## Setup k8s nodes for cluster installation
+El primer playbook se llama "Setup k8s nodes for cluster installation".
+- El playbook se ejecutará en hosts etiquetados como `k8scluster`.
+- `gather_facts` se establece en `no` para evitar que Ansible recopile información sobre los hosts.
+- El archivo `vars.yaml` contiene variables que se utilizarán en las tareas.
+
+Tareas:
+- `change default password`: Cambia la contraseña predeterminada en los nodos del clúster.
+- `small pause before updating and upgrading`: Detiene la ejecución del playbook durante 5 segundos antes de actualizar y actualizar los paquetes.
+- `Update and upgrade packages`: Actualiza y actualiza los paquetes en los nodos del clúster.
+- `Add cluster servers to hostfile`: Agrega las direcciones IP y nombres de host de los nodos del clúster al archivo `/etc/hosts`.
+- `Reboot to apply all the updates and upgrades`: Reinicia los nodos para aplicar todas las actualizaciones y actualizaciones.
+
+## Setup software for cluster control-plane and worker nodes
+El segundo playbook se llama "Setup software for cluster control-plane and worker nodes".
+- El playbook se ejecutará en hosts etiquetados como `k8sclusternodes`.
+- `gather_facts` se establece en `no` para evitar que Ansible recopile información sobre los hosts.
+
+Tareas:
+- `Run script to install containerd`: Ejecuta el script para instalar `containerd` en los nodos del clúster.
+- `Run script to install k8s components`: Ejecuta el script para instalar los componentes de Kubernetes en los nodos del clúster.
+
+## Setup software and services for cluster loadbalancers
+El tercer playbook se llama "Setup software and services for cluster loadbalancers".
+- El playbook se ejecutará en hosts etiquetados como `loadbalancers`.
+- `gather_facts` se establece en `no` para evitar que Ansible recopile información sobre los hosts.
+
+Tareas:
+- `add software to load balancer nodes`: Instala los paquetes `haproxy` y `keepalived` en los nodos de balanceo de carga del clúster.
+- `copy config files for haproxy and keepalived`: Copia los archivos de configuración de `haproxy` y `keepalived` en los nodos de balanceo de carga del clúster.
+- `make check_apiserver.sh executable`: Establece los permisos necesarios en el archivo `check_apiserver.sh`.
+- `enable and start services`: Habilita y ejecuta los servicios `haproxy` y `keepalived`.
+- `pause to check haproxy and keepalived are running`: Detiene la ejecución del playbook para que el usuario pueda comprobar que `haproxy` y `keepalived` se están ejecutando. Actualmente por alguna razon los servicios fallan luego de copiar los archivos de configuracion con ansible, por lo que es necesario pausar el playbook, conectarse a los servidores de loadbalancer y modificar el archivo /etc/haproxy/haproxy.cfg simplmente borrando la ultima linea en blanco y guardando el archivo. luego reiniciar el servicio haproxy con sudo systemctl restart haproxy y verificar que el servicio este corriendo con systemctl status haproxy.
+
+## Setup cluster with kubeadm init
+El cuarto playbook se llama "Setup cluster with kubeadm init".
+- El playbook se ejecutará en el host etiquetado como `controlplane1`.
+- `gather_facts` se establece en `no` para evitar que Ansible recopile información sobre los hosts.
+
+Tareas:
+- `initialize cluster with kubeadm`: Ejecuta el comando `kubeadm init` en el host `controlplane1` para inicializar el clúster de Kubernetes
+- `get join command for control-plane nodes`: Obtiene el comando de unión para los nodos de plano de control.
+- `save join command for control-plane nodes into variable`: Guarda el comando de unión en una variable.
+- `get join command for worker nodes`: Obtiene el comando de unión para los nodos de trabajo.
+- `save join command for worker nodes into variable`: Guarda el comando de unión en una variable.
+
+## Join the rest of the control plane nodes to the cluster
+El quinto playbook se llama "Join the rest of the control plane nodes to the cluster".
+- El playbook se ejecutará en hosts etiquetados como `controlplane2` y `controlplane3`.
+- `gather_facts` se establece en `no` para evitar que Ansible recopile información sobre los hosts.
+
+Tareas:
+- `Join control-plane nodes to the cluster`: Ejecuta el comando de unión guardado anteriormente para unir los nodos de plano de control al clúster.
+
+## Join the worker nodes to the cluster
+El sexto playbook se llama "Join the worker nodes to the cluster".
+- El playbook se ejecutará en hosts etiquetados como `workernode1`, `workernode2` y `workernode3`.
+- `gather_facts` se establece en `no` para evitar que Ansible recopile información sobre los hosts.
+
+Tareas:
+- `Join worker nodes to the cluster`: Ejecuta el comando de unión guardado anteriormente para unir los nodos de trabajo al clúster.
+
+## Restart kubelet and containerd services on nodes
+El séptimo playbook se llama "Restart kubelet and containerd services on nodes".
+- El playbook se ejecutará en hosts etiquetados como `k8sclusternodes`.
+- `gather_facts` se establece en `no` para evitar que Ansible recopile información sobre los hosts.
+
+Tareas:
+- `restart kubelet and containerd services`: Reinicia los servicios `kubelet` y `containerd` en los nodos del clúster.
+
+## Setup CNI plugin
+El octavo playbook se llama "Setup CNI plugin".
+- El playbook se ejecutará en el host etiquetado como `controlplane1`.
+- `gather_facts` se establece en `no` para evitar que Ansible recopile información sobre los hosts.
+
+Tareas:
+- `install kube Router CNI plugin`: Instala el plugin CNI de `kube Router` en el host `controlplane1`.
+
+## Fetch the kubeconfig file from the control-plane node
+El noveno playbook se llama "Fetch the kubeconfig file from the control-plane node".
+- El playbook se ejecutará en el host etiquetado como `controlplane1`.
+- `gather_facts` se establece en `no` para evitar que Ansible recopile información sobre los hosts.
+
+Tareas:
+- `fetch kubeconfig file`: Recupera el archivo de configuración de Kubernetes desde el host `controlplane1` y lo guarda en la carpeta `kube-admin-file` en la máquina de control.

@@ -1,0 +1,192 @@
+- name: Setup k8s nodes for cluster installation
+  hosts: k8scluster
+  gather_facts: no 
+  vars_files:
+    - vars.yaml
+  tasks:
+    - name: change default password
+      delegate_to: localhost
+      ansible.builtin.expect:
+        command: ssh ubuntu@{{ inventory_hostname }} -o StrictHostKeyChecking=no
+        responses:
+          "Current password:": "{{ default_user_password }}"
+          "New password": "{{ new_user_password }}"
+          "Retype new password":  "{{ new_user_password }}"
+
+    - name: small pause before updating and upgrading to avoid conectivity issues
+      pause:
+        seconds: 5
+
+    - name: Update and upgrade packages
+      become: true
+      apt:
+        update_cache: yes
+        upgrade: dist
+        state: latest
+    
+    - name: Add cluster servers to hostfile
+      become: yes
+      lineinfile:
+        path: /etc/hosts
+        line: "{{ item.ip }} {{ item.hostname }}"
+        state: present
+      with_items: "{{ entradas_hosts }}"
+
+    - name: Reboot to apply all the updates and upgrades
+      become: true
+      ansible.builtin.reboot:
+        reboot_timeout: 3600
+
+- name: Setup software for cluster control-plane and worker nodes
+  hosts: k8sclusternodes
+  gather_facts: no 
+  
+  tasks:
+
+    - name: Run script to install containerd
+      become: yes
+      script: scripts/install-containerd.sh 
+      
+    - name: Run script to install k8s components
+      become: yes
+      script: scripts/install-k8s-components.sh
+
+- name: Setup software and services for cluster loadbalancers
+  hosts: loadbalancers
+  gather_facts: no 
+  
+  tasks:
+
+    - name: add software to load balancer nodes
+      become: yes
+      apt:
+        name: "{{ item }}"
+        state: present
+      with_items:
+        - haproxy
+        - keepalived
+      
+    - name: copy config files for haproxy and keepalived
+      become: yes
+      copy:
+        src: "{{ item.src }}"
+        dest: "{{ item.dest }}"
+      with_items:
+        - { src: "config-files/haproxy/haproxy.cfg", dest: "/etc/haproxy/" }
+        - { src: "config-files/keepalived/keepalived.conf", dest: "/etc/keepalived/" }
+        - { src: "config-files/keepalived/check_apiserver.sh", dest: "/etc/keepalived/check_apiserver.sh" }
+
+    - name: make check_apiserver.sh executable
+      become: yes
+      file:
+        path: /etc/keepalived/check_apiserver.sh
+        mode: 0755
+
+    - name: enable and start services
+      become: yes
+      service:
+        name: "{{ item }}"
+        state: started
+        enabled: yes
+      with_items:
+        - haproxy
+        - keepalived
+
+    - name: pause to check haproxy and keepalived are running
+      pause:
+      
+
+- name: Setup cluster with kubeadm init
+  hosts: controlplane1
+  gather_facts: no 
+  
+  tasks:
+      
+    - name: initialize cluster with kubeadm 
+      become: yes
+      command: sudo kubeadm init --control-plane-endpoint "192.168.103.9:6443" --upload-certs --pod-network-cidr=172.17.0.0/16
+    
+    - name: get join command for control-plane nodes
+      become: yes
+      shell: 'echo $(sudo kubeadm token create --print-join-command) --control-plane --certificate-key $(sudo kubeadm init phase upload-certs --upload-certs | grep -vw -e certificate -e Namespace) | grep -o ''kubeadm join .*'''
+      register: join_command_controlplane
+      
+    
+    - name: save join command for control-plane nodes into variable
+      become: yes
+      set_fact:
+        join_command_controlplane: "{{ join_command_controlplane.stdout }}"
+
+    - name: get join command for worker nodes
+      become: yes
+      command: sudo kubeadm token create --print-join-command
+      register: join_command_worker
+    
+    - name: save join command for worker nodes into variable
+      become: yes
+      set_fact:
+        join_command_worker: "{{ join_command_worker.stdout }}"
+
+
+- name: Join the rest of the control plane nodes to the cluster
+  hosts: controlplane2, controlplane3
+  gather_facts: no 
+
+  
+  tasks:
+      
+    - name: Join control-plane nodes to the cluster
+      become: yes
+      shell: "{{ hostvars['controlplane1']['join_command_controlplane'] }}"
+
+
+- name: Join the worker nodes to the cluster
+  hosts: workernode1, workernode2, workernode3
+  gather_facts: no  
+
+  tasks:
+
+    - name: Join worker nodes to the cluster
+      become: yes
+      shell: "{{ hostvars['controlplane1']['join_command_worker'] }}"
+
+- name: Restart kubelet and containerd services on nodes
+  hosts: k8sclusternodes
+  gather_facts: no 
+  
+  tasks:
+      
+    - name: restart kubelet and containerd services
+      become: yes
+      service:
+        name: "{{ item }}"
+        state: restarted
+      with_items:
+        - kubelet
+        - containerd
+  
+- name: Setup CNI plugin
+  hosts: controlplane1
+  gather_facts: no 
+  
+  tasks:
+      
+    - name: install kube Router CNI plugin
+      become: yes
+      shell: "sudo KUBECONFIG=/etc/kubernetes/admin.conf kubectl apply -f https://raw.githubusercontent.com/cloudnativelabs/kube-router/master/daemonset/kubeadm-kuberouter.yaml"
+
+
+- name: Fetch the kubeconfig file from the control-plane node
+  hosts: controlplane1
+  gather_facts: no 
+  
+  tasks:
+      
+    - name: fetch kubeconfig file
+      become: yes
+      fetch:
+        src: /etc/kubernetes/admin.conf
+        dest: kube-admin-file/admin.conf
+        flat: yes
+        mode: 0644
+
