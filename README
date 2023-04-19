@@ -3,6 +3,7 @@ El primer playbook se llama "Setup k8s nodes for cluster installation".
 
 El playbook se ejecutará en hosts etiquetados como k8scluster.
 gather_facts se establece en no para evitar que Ansible recopile información sobre los hosts.
+
 ## Setup k8s nodes for cluster installation
 El primer playbook se llama "Setup k8s nodes for cluster installation".
 - El playbook se ejecutará en hosts etiquetados como `k8scluster`.
